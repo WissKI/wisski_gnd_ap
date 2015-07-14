@@ -1,0 +1,304 @@
+<?php
+
+
+/* implementation of hook_wisski_accesspoint
+*
+* This module provides its own ap type 'store'. The store type creates a local
+* triple store using ARC2 for each ap object. The user may then import RDF data
+* and query it via the endpoint member.
+*
+* @author Martin Scholz
+* 
+*/
+function wisski_gnd_ap_wisski_accesspoint($op, $ap = NULL) {
+
+  switch ($op) {
+    case 'types':
+      // provide type store
+      return array(
+        'gnd_wrapper' => array(
+          'name' => t('GND Wrapper'),
+          'description' => t('Access the GND vocabulary'),
+        )
+      );
+    
+    case 'operations':
+      // Provide the standard edit form plus
+      // a form for import of rdf files and
+      // a command to drop the store contents
+      // see also the wisski_ap_store_menu hook
+      return array(
+        t('Edit') => 'admin/settings/wisski/accesspoint/' . $ap->aid . '/edit',
+      );
+
+    case 'url':
+      
+      // each store has a sparql endpoint
+      global $base_root, $base_path;
+      return $base_root . $base_path . 'wisski/ap_store/' . $ap->aid . '/endpoint';
+
+    case 'endpoint':
+      
+      return new WissKIGNDWrapper();
+
+    case 'delete':
+      
+      return NULL;
+
+    case 'edit':
+      
+      // present a list of imported files with import dates
+      
+      $fieldset['index_info'] = array(
+        '#value' => t('This accesspoint comes with its own caching and indexing mechanism. Do not activate normal indexing.'),
+      );
+      $fieldset['about_url'] = array(
+        '#type' => 'textfield',
+        '#title' => t('About URL'),
+        '#description' => t('The URL to be accessed for information about an entry. Use %{gndid} for the GND ID of the entry.'),
+        '#default_value' => isset($ap->settings['about_url']) ? $ap->settings['about_url'] : 'http://d-nb.info/gnd/%{gndid}/about/lds',
+      );
+      $fieldset['entry_uri'] = array(
+        '#type' => 'textfield',
+        '#title' => t('Entry URI'),
+        '#description' => t('The URI scheme for an entry. Use %{gndid} for the GND ID of the entry. The GND ID must occur exactly once.'),
+        '#default_value' => isset($ap->settings['entry_uri']) ? $ap->settings['entry_uri'] : 'http://d-nb.info/gnd/%{gndid}',
+      );
+      $fieldset['empty_cache'] = array(
+        '#type' => 'checkbox',
+        '#title' => t('Empty cache'),
+        '#description' => t('Empty the cache of entries.'),
+        '#default_value' => 0,
+      );
+
+      return $fieldset;
+
+    case 'validate':
+      
+      return;
+
+    case 'submit':
+
+      if ($ap->empty_cache) {
+        db_query('TRUNCATE TABLE {wisski_gnd_ap_cache}');
+      }
+      
+      return array(
+        array(
+          'search_url' => $ap->search_url,
+          'about_url' => $ap->about_url,
+          'entry_uri' => $ap->entry_uri,
+        ),
+        NULL,
+      );
+      
+  }
+
+}
+
+
+
+/** Dummy wrapper for the endpoint. There is no endpoint here...
+*
+* @author Martin Scholz
+*/
+class WissKIGNDWrapper {
+
+  public function query() {
+    return array();
+  }
+
+  public function getErrors() {
+    return array();
+  }
+
+}
+
+
+/** Handles all queries on all fields
+*
+* @author Martin Scholz
+*/
+function wisski_gnd_ap_gnd_wrapper_fields_cb($fid, $ap, $source, $target, $limit, $offset, $match_mode, $no_order = FALSE) {
+  // these are all supported fields
+  if (!in_array($fid, array('label', 'alt_label', 'id'))) return array();
+
+  if (!$source) {
+    // perform a search
+    
+    if ($fid != 'label' && $fid != 'alt_label') return array();
+
+    //TODO
+    return array();
+
+  } else {
+    // gather information about $source
+    
+    $uri_scheme = $ap->settings['entry_uri'];
+    list($prefix, $suffix) = explode('%{gndid}', $uri_scheme, 2);
+    
+    $lp = strlen($prefix);
+    $ls = strlen($suffix);
+    if (substr($source, 0, $lp) == $prefix && (!$suffix || substr($source, -$ls) == $suffix)) {
+      
+      $gndid = !$ls ? substr($source, $lp) : substr($source, $lp, -$ls);
+      
+      // check if 
+      $tmp = db_query("SELECT parsed, fields FROM {wisski_gnd_ap_cache} WHERE gndid = %d", $gndid, $fid);
+      $record = db_fetch_array($tmp);
+      if (!$record || (!$record['parsed'] && !isset($record['fields'][$fid]))) {
+        
+        $url = str_replace('%{gndid}', $gndid, $ap->settings['about_url']);
+        if (!($page = file_get_contents($url))) {
+          return array();
+        }
+        $values = _wisski_gnd_ap_parse_about($page, $gndid, $uri_scheme);
+
+      } else {
+        $values = unserialize($record['fields']);
+      }
+
+/*      $values = _wisski_gnd_ap_filter_values($target, $match_mode, $values);
+
+      if (!$no_order) {
+        usort($values, function($a, $b) {return strnatcasecmp($a['value'], $b['value']); });
+      }
+
+      if ($limit > 0) {
+        $values = array_slice($values, $offset, $limit);
+      }*/
+
+      return array($source => array($fid => $values[$fid]));
+
+    } else {
+      // this is not a valid gnd uri
+      return array();
+    }
+  
+  }
+
+}
+
+
+/** Extract all information from a web page for an entry
+*
+* @author Martin Scholz
+*/
+function _wisski_gnd_ap_parse_about($page, $gndid, $uri_scheme) {
+  
+  include_once(drupal_get_path('module', 'wisski_store') . '/arc/ARC2.php');
+  $parser = ARC2::getRDFXMLParser();
+  $parser->parse('http://example.org/', $page);
+  if ($parser->getErrors()) {
+    foreach ($parser->getErrors() as $e) drupal_set_message(check_plain($e), 'error');
+    return array();
+  }
+  
+  db_query('DELETE FROM {wisski_gnd_ap_cache} WHERE gndid = %d', $gndid);
+  
+  $values = array(
+    'id' => array(
+      array(
+        'value' => $gndid,
+        'type' => 'literal',
+        'lang' => '',
+      ),
+    ),
+  );
+  
+  $gnduri = str_replace('%{gndid}', $gndid, $uri_scheme);
+  $index = $parser->getSimpleIndex(0);
+  
+  $props = array(
+    'label' => array(
+      'http://d-nb.info/standards/elementset/gnd#preferredNameEntityForThePerson',
+      'http://d-nb.info/standards/elementset/gnd#preferredNameForTheConferenceOrEvent',
+      'http://d-nb.info/standards/elementset/gnd#preferredNameForTheCorporateBody',
+      'http://d-nb.info/standards/elementset/gnd#preferredNameForTheFamily',
+      'http://d-nb.info/standards/elementset/gnd#preferredNameForThePerson',
+      'http://d-nb.info/standards/elementset/gnd#preferredNameForThePlaceOrGeographicName',
+      'http://d-nb.info/standards/elementset/gnd#preferredNameForTheSubjectHeading',
+      'http://d-nb.info/standards/elementset/gnd#preferredNameForTheWork',
+    ),
+    'alt_label' => array(
+      'http://d-nb.info/standards/elementset/gnd#variantNameEntityForThePerson',
+      'http://d-nb.info/standards/elementset/gnd#variantNameForTheConferenceOrEvent',
+      'http://d-nb.info/standards/elementset/gnd#variantNameForTheCorporateBody',
+      'http://d-nb.info/standards/elementset/gnd#variantNameForTheFamily',
+      'http://d-nb.info/standards/elementset/gnd#variantNameForThePerson',
+      'http://d-nb.info/standards/elementset/gnd#variantNameForThePlaceOrGeographicName',
+      'http://d-nb.info/standards/elementset/gnd#variantNameForTheSubjectHeading',
+      'http://d-nb.info/standards/elementset/gnd#variantNameForTheWork',
+    ),
+  );
+
+  if ($index[$gnduri]) {
+
+    $data = $index[$gnduri];
+    
+    foreach ($props as $fid => $proparray) {
+      foreach ($proparray as $prop) {
+        if (isset($data[$prop])) {
+          foreach ((array) $data[$prop] as $datavalue) {
+            $values[$fid][] = array(
+              'value' => $datavalue['value'],
+              'type' => $datavalue['type'],
+              'lang' => '',
+            );
+          }
+        }
+      }
+    }         
+    
+  }
+  
+  $record = array(
+    'gndid' => $gndid,
+    'parsed' => 1,
+    'fields' => $values,
+  );
+  
+  drupal_write_record('wisski_gnd_ap_cache', $record);
+
+  return $values;
+
+}
+
+
+/** Extract all information from a search result web page 
+*
+* @author Martin Scholz
+*/
+function _wisski_gnd_ap_parse_search($page) {
+
+}
+
+
+/** Filter an array according to a filtering mode 
+*
+* @author Martin Scholz
+*/
+function _wisski_gnd_ap_filter_values($pattern, $mode, $values) {
+  
+  if ($mode == 'exact') {
+      
+    foreach ($values as $k => $v) {
+      if ($pattern != $v['value']) unset($values[$k]);
+    }
+
+  } else {  // all other modes are currently implemented as "contains"
+    
+    foreach ($values as $k => $v) {
+      if (strpos($v['value'], $pattern) === FALSE) unset($values[$k]);
+    }
+
+  }
+
+  return $values;
+
+}
+
+
+function _wisski_gnd_ap_html_entity_decode($str) {
+  return strtr($str, array('&lt;' => '<', '&gt;' => '>', '&amp;' => '&', '&quot;' => '"', '&apos;' => "'"));
+}

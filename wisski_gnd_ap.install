@@ -1,0 +1,45 @@
+<?php
+
+function wisski_gnd_ap_schema () {
+
+  $schemas = array();
+
+  $schemas['wisski_gnd_ap_cache'] = array(
+    'description' => 'entry cache',
+    'fields' => array(
+      'gndid' => array(
+        'type' => 'int',
+        'size' => 'normal',
+        'not null' => TRUE,
+      ),
+      'parsed' => array(
+        'type' => 'int',
+        'size' => 'tiny',
+        'not null' => TRUE,
+      ),
+      'fields' => array(
+        'type' => 'text',
+        'size' => 'normal',
+        'serialize' => TRUE,
+        'not null' => TRUE,
+      ),
+    ),
+    'primary key' => array('gndid'),
+    'indexes' => array(
+      'fields' => array(array('fields', 100)),
+      'parsed' => array('parsed'),
+    ),
+  );
+
+  return $schemas;
+  
+}
+
+function wisski_gnd_ap_install () {
+  drupal_install_schema('wisski_gnd_ap');    
+}
+
+
+function wisski_gnd_ap_uninstall () {
+  drupal_uninstall_schema('wisski_gnd_ap');
+}

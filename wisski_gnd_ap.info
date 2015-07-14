@@ -1,0 +1,6 @@
+; $Id$
+name = WissKI GND Accesspoint
+description = A simple wrapper that emulates an accesspoint for the GND vocabulary of the Deutsche Nationalbibliothek. At the moment it does only support querying of entry metadata an. Searching is currently not supported.
+core = 6.x
+package = "WissKI"
+dependencies[] = wisski_accesspoint
