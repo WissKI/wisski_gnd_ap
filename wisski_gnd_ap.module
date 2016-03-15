@@ -211,7 +211,6 @@ function _wisski_gnd_ap_parse_about($page, $gndid, $uri_scheme) {
   
   $props = array(
     'label' => array(
-      'http://d-nb.info/standards/elementset/gnd#preferredNameEntityForThePerson',
       'http://d-nb.info/standards/elementset/gnd#preferredNameForTheConferenceOrEvent',
       'http://d-nb.info/standards/elementset/gnd#preferredNameForTheCorporateBody',
       'http://d-nb.info/standards/elementset/gnd#preferredNameForTheFamily',
@@ -221,7 +220,6 @@ function _wisski_gnd_ap_parse_about($page, $gndid, $uri_scheme) {
       'http://d-nb.info/standards/elementset/gnd#preferredNameForTheWork',
     ),
     'alt_label' => array(
-      'http://d-nb.info/standards/elementset/gnd#variantNameEntityForThePerson',
       'http://d-nb.info/standards/elementset/gnd#variantNameForTheConferenceOrEvent',
       'http://d-nb.info/standards/elementset/gnd#variantNameForTheCorporateBody',
       'http://d-nb.info/standards/elementset/gnd#variantNameForTheFamily',
