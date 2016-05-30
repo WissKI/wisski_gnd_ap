@@ -187,7 +187,9 @@ function wisski_gnd_ap_gnd_wrapper_fields_cb($fid, $ap, $source, $target, $limit
 function _wisski_gnd_ap_parse_about($page, $gndid, $uri_scheme) {
   
   include_once(drupal_get_path('module', 'wisski_store') . '/arc/ARC2.php');
-  $parser = ARC2::getRDFXMLParser();
+  // $parser = ARC2::getRDFXMLParser(); // Martin 20160530: GND seems to have switched from rdfxml to ttl
+  // we let arc detect the format
+  $parser = ARC2::getRDFParser();
   $parser->parse('http://example.org/', $page);
   if ($parser->getErrors()) {
     foreach ($parser->getErrors() as $e) drupal_set_message(check_plain($e), 'error');
